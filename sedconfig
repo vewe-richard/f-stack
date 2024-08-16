@@ -1,0 +1,12 @@
+sed "s/addr=192.168.1.2/addr=${myaddr}/" -i /data/f-stack/config.ini
+sed "s/netmask=255.255.255.0/netmask=${mymask}/" -i /data/f-stack/config.ini
+sed "s/broadcast=192.168.1.255/broadcast=${mybc}/" -i /data/f-stack/config.ini
+sed "s/gateway=192.168.1.1/gateway=${mygw}/" -i /data/f-stack/config.ini
+
+# enable kni
+sed "s/#\[kni\]/\[kni\]/" -i /data/f-stack/config.ini
+sed "s/#enable=1/enable=1/" -i /data/f-stack/config.ini
+sed "s/#method=reject/method=reject/" -i /data/f-stack/config.ini
+sed "s/#tcp_port=80/tcp_port=80/" -i /data/f-stack/config.ini
+sed "s/#vlanstrip=1/vlanstrip=1/" -i /data/f-stack/config.ini
+

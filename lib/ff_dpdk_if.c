@@ -153,6 +153,28 @@ ff_hardclock_job(__rte_unused struct rte_timer *timer,
     ff_update_current_ts();
 }
 
+static void print_packet(struct rte_mbuf *mbuf) {
+    uint8_t *data = rte_pktmbuf_mtod(mbuf, uint8_t *);
+    uint16_t len = rte_pktmbuf_data_len(mbuf);
+
+    printf("Packet data (length=%u):\n", len);
+    if(data[36] == 0x30 && data[37] == 0x39){
+	    printf("tcp packet\n");
+    }
+    for (uint16_t i = 0; i < len; ++i) {
+        printf("%02x", data[i]);
+        if ((i + 1) % 2 == 0)
+            printf(" ");
+        if ((i + 1) % 16 == 0)
+            printf("\n");
+    }
+    if (len % 16 != 0)
+        printf("\n");
+    printf("\n");
+}
+
+
+
 struct ff_dpdk_if_context *
 ff_dpdk_register_if(void *sc, void *ifp, struct ff_port_cfg *cfg)
 {
@@ -1476,10 +1498,14 @@ process_packets(uint16_t port_id, uint16_t queue_id, struct rte_mbuf **bufs,
             }
 
             if (ret != queue_id) {
+		printf("enqueue to rte ring\n");
+		print_packet(rtem);
+
                 ret = rte_ring_enqueue(dispatch_ring[port_id][ret], rtem);
                 if (ret < 0)
                     rte_pktmbuf_free(rtem);
 
+		printf("enqueue to rte ring end %d\n", ret);
                 continue;
             }
         }
@@ -1812,6 +1838,10 @@ send_burst(struct lcore_conf *qconf, uint16_t n, uint8_t port)
     }
 
     ret = rte_eth_tx_burst(port, queueid, m_table, n);
+    printf("rte_eth_tx_burst 01 burst %d\n", ret);
+    for(int i = 0; i < n; i ++){
+        print_packet(m_table[i]);
+    }
     ff_traffic.tx_packets += ret;
     uint16_t i;
     for (i = 0; i < ret; i++) {
@@ -1840,6 +1870,12 @@ send_single_packet(struct rte_mbuf *m, uint8_t port)
     uint16_t len;
     struct lcore_conf *qconf;
 
+    uint8_t *data = rte_pktmbuf_mtod(m, uint8_t *);
+    if(data[36] == 0x30 && data[37] == 0x39){
+	    printf("send tcp packet\n");
+	    print_packet(m);
+	    printf("end send...\n");
+    }
     qconf = &lcore_conf;
     len = qconf->tx_mbufs[port].len;
     qconf->tx_mbufs[port].m_table[len] = m;
@@ -2062,6 +2098,11 @@ main_loop(void *arg)
                 MAX_PKT_BURST);
             if (nb_rx == 0)
                 continue;
+	    printf("rte_eth_rx_burst %d\n", nb_rx);
+
+	    for(j = 0; j < nb_rx; j ++){
+		    print_packet(pkts_burst[j]);
+	    }
 
             idle = 0;
 
@@ -2119,6 +2160,166 @@ main_loop(void *arg)
     }
 
     return 0;
+}
+
+static struct {
+    int initialized;
+    uint64_t drain_tsc;
+    uint64_t prev_tsc, usch_tsc;
+} main_loop_params = {.initialized = 0};
+
+static void main_loop_init(void) {
+    if(main_loop_params.initialized == 0){
+	main_loop_params.initialized = 1;
+	main_loop_params.prev_tsc = 0;
+	main_loop_params.usch_tsc = 0;
+        if (pkt_tx_delay) {
+            main_loop_params.drain_tsc = (rte_get_tsc_hz() + US_PER_S - 1) / US_PER_S * pkt_tx_delay;
+        }
+    }
+}
+
+
+int
+ff_main_loop(cst_loop_func_t func, int sockfd, int epfd)
+{
+    //struct loop_routine *lr = (struct loop_routine *)arg;
+
+    struct rte_mbuf *pkts_burst[MAX_PKT_BURST];
+    uint64_t diff_tsc, cur_tsc, div_tsc, usr_tsc, sys_tsc, end_tsc, idle_sleep_tsc;
+    int i, j, nb_rx, idle;
+    uint16_t port_id, queue_id;
+    struct lcore_conf *qconf;
+    struct ff_dpdk_if_context *ctx;
+    int result = 0;
+
+    main_loop_init();
+    qconf = &lcore_conf;
+
+    while (1) {
+
+        if (unlikely(stop_loop)) {
+            break;
+        }
+
+        cur_tsc = rte_rdtsc();
+        if (unlikely(freebsd_clock.expire < cur_tsc)) {
+            //rte_timer_manage();
+        }
+
+        idle = 1;
+        sys_tsc = 0;
+        usr_tsc = 0;
+        usr_cb_tsc = 0;
+
+        /*
+         * TX burst queue drain
+         */
+        diff_tsc = cur_tsc - main_loop_params.prev_tsc;
+        if (unlikely(diff_tsc >= main_loop_params.drain_tsc)) {
+            for (i = 0; i < qconf->nb_tx_port; i++) {
+                port_id = qconf->tx_port_id[i];
+                if (qconf->tx_mbufs[port_id].len == 0)
+                    continue;
+
+                idle = 0;
+
+                send_burst(qconf,
+                    qconf->tx_mbufs[port_id].len,
+                    port_id);
+                qconf->tx_mbufs[port_id].len = 0;
+            }
+
+            main_loop_params.prev_tsc = cur_tsc;
+        }
+
+        /*
+         * Read packet from RX queues
+         */
+        for (i = 0; i < qconf->nb_rx_queue; ++i) {
+            port_id = qconf->rx_queue_list[i].port_id;
+            queue_id = qconf->rx_queue_list[i].queue_id;
+            ctx = veth_ctx[port_id];
+
+#ifdef FF_KNI
+            if (enable_kni && rte_eal_process_type() == RTE_PROC_PRIMARY) {
+                ff_kni_process(port_id, queue_id, pkts_burst, MAX_PKT_BURST);
+            }
+#endif
+
+            idle &= !process_dispatch_ring(port_id, queue_id, pkts_burst, ctx);
+
+            nb_rx = rte_eth_rx_burst(port_id, queue_id, pkts_burst,
+                MAX_PKT_BURST);
+            if (nb_rx == 0)
+                continue;
+	    printf("rte_eth_rx_burst %d\n", nb_rx);
+
+	    for(j = 0; j < nb_rx; j ++){
+		    print_packet(pkts_burst[j]);
+	    }
+
+            idle = 0;
+
+            /* Prefetch first packets */
+            for (j = 0; j < PREFETCH_OFFSET && j < nb_rx; j++) {
+                rte_prefetch0(rte_pktmbuf_mtod(
+                        pkts_burst[j], void *));
+            }
+
+            /* Prefetch and handle already prefetched packets */
+            for (j = 0; j < (nb_rx - PREFETCH_OFFSET); j++) {
+                rte_prefetch0(rte_pktmbuf_mtod(pkts_burst[
+                        j + PREFETCH_OFFSET], void *));
+                process_packets(port_id, queue_id, &pkts_burst[j], 1, ctx, 0);
+            }
+
+            /* Handle remaining prefetched packets */
+            for (; j < nb_rx; j++) {
+                process_packets(port_id, queue_id, &pkts_burst[j], 1, ctx, 0);
+            }
+        }
+
+        process_msg_ring(qconf->proc_id, pkts_burst);
+
+        div_tsc = rte_rdtsc();
+
+        if (likely(func != NULL && (!idle || cur_tsc - main_loop_params.usch_tsc >= main_loop_params.drain_tsc))) {
+            main_loop_params.usch_tsc = cur_tsc;
+            //lr->loop(lr->arg);
+            result = func(sockfd, epfd);
+	    if(result != 100) {
+		    break;
+	    }
+
+        }
+
+        idle_sleep_tsc = rte_rdtsc();
+        if (likely(idle && idle_sleep)) {
+            usleep(idle_sleep);
+            end_tsc = rte_rdtsc();
+        } else {
+            end_tsc = idle_sleep_tsc;
+        }
+
+        usr_tsc = usr_cb_tsc;
+        if (main_loop_params.usch_tsc == cur_tsc) {
+            usr_tsc += idle_sleep_tsc - div_tsc;
+        }
+
+        if (!idle) {
+            sys_tsc = div_tsc - cur_tsc - usr_cb_tsc;
+            ff_top_status.sys_tsc += sys_tsc;
+        }
+
+        ff_top_status.usr_tsc += usr_tsc;
+        ff_top_status.work_tsc += end_tsc - cur_tsc;
+        ff_top_status.idle_tsc += end_tsc - cur_tsc - usr_tsc - sys_tsc;
+
+        ff_top_status.loops++;
+    }
+
+    return result;
 }
 
 int

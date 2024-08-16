@@ -232,9 +232,11 @@ kni_process_tx(uint16_t port_id, uint16_t queue_id,
         nb_kni_tx = rte_kni_tx_burst(kni_stat[port_id]->kni, pkts_burst, nb_tx);
         rte_kni_handle_request(kni_stat[port_id]->kni);
     } else if (ff_global_cfg.kni.type == KNI_TYPE_VIRTIO)
+#error "aaa"
 #endif
     {
         nb_kni_tx = rte_eth_tx_burst(kni_stat[port_id]->port_id, 0, pkts_burst, nb_tx);
+	if(nb_kni_tx != 0) printf("rte_eth_tx_burst 02 burst %d\n", nb_kni_tx);
     }
 
     if(nb_kni_tx < nb_tx) {
@@ -267,6 +269,7 @@ kni_process_rx(uint16_t port_id, uint16_t queue_id,
 
     if (nb_kni_rx > 0) {
         nb_rx = rte_eth_tx_burst(port_id, queue_id, pkts_burst, nb_kni_rx);
+        printf("rte_eth_tx_burst 03 burst %d\n", nb_rx);
         if (nb_rx < nb_kni_rx) {
             uint16_t i;
             for(i = nb_rx; i < nb_kni_rx; ++i)

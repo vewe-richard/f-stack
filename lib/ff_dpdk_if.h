@@ -60,6 +60,10 @@ void ff_dpdk_set_if(struct ff_dpdk_if_context *ctx, void *sc, void *ifp);
 
 int ff_dpdk_if_send(struct ff_dpdk_if_context* ctx, void *buf, int total);
 
+
+typedef int (*cst_loop_func_t)(int sockfd, int epfd);
+int ff_main_loop(cst_loop_func_t func, int sockfd, int epfd);
+
 void ff_dpdk_pktmbuf_free(void *m);
 
 
