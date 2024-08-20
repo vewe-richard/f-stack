@@ -18,6 +18,7 @@ LIBS+= -Wl,--no-whole-archive -lrt -lm -ldl -lcrypto -pthread -lnuma
 
 TARGET="helloworld"
 all:
+	cc ${CFLAGS} -o ${TARGET} main.c ${LIBS}
 	cc ${CFLAGS} -o ${TARGET}_client_epoll main_client_epoll.c ${LIBS}
 
 .PHONY: clean

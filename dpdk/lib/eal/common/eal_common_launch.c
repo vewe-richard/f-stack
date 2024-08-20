@@ -76,10 +76,12 @@ rte_eal_mp_remote_launch(int (*f)(void *), void *arg,
 
 	/* send messages to cores */
 	RTE_LCORE_FOREACH_WORKER(lcore_id) {
+		printf("rte_eal_remote_launch\n");
 		rte_eal_remote_launch(f, arg, lcore_id);
 	}
 
 	if (call_main == CALL_MAIN) {
+		printf("call from main core jiangjqian\n");
 		lcore_config[main_lcore].ret = f(arg);
 		lcore_config[main_lcore].state = WAIT;
 	}

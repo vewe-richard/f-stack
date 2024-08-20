@@ -152,7 +152,7 @@ ff_hardclock_job(__rte_unused struct rte_timer *timer,
     ff_hardclock();
     ff_update_current_ts();
 }
-
+/*
 static void print_packet(struct rte_mbuf *mbuf) {
     uint8_t *data = rte_pktmbuf_mtod(mbuf, uint8_t *);
     uint16_t len = rte_pktmbuf_data_len(mbuf);
@@ -171,7 +171,7 @@ static void print_packet(struct rte_mbuf *mbuf) {
     if (len % 16 != 0)
         printf("\n");
     printf("\n");
-}
+}*/
 
 
 
@@ -1498,14 +1498,14 @@ process_packets(uint16_t port_id, uint16_t queue_id, struct rte_mbuf **bufs,
             }
 
             if (ret != queue_id) {
-		printf("enqueue to rte ring\n");
-		print_packet(rtem);
+		//printf("enqueue to rte ring\n");
+		//print_packet(rtem);
 
                 ret = rte_ring_enqueue(dispatch_ring[port_id][ret], rtem);
                 if (ret < 0)
                     rte_pktmbuf_free(rtem);
 
-		printf("enqueue to rte ring end %d\n", ret);
+		//printf("enqueue to rte ring end %d\n", ret);
                 continue;
             }
         }
@@ -1838,10 +1838,11 @@ send_burst(struct lcore_conf *qconf, uint16_t n, uint8_t port)
     }
 
     ret = rte_eth_tx_burst(port, queueid, m_table, n);
+    /*
     printf("rte_eth_tx_burst 01 burst %d\n", ret);
     for(int i = 0; i < n; i ++){
         print_packet(m_table[i]);
-    }
+    }*/
     ff_traffic.tx_packets += ret;
     uint16_t i;
     for (i = 0; i < ret; i++) {
@@ -1871,11 +1872,12 @@ send_single_packet(struct rte_mbuf *m, uint8_t port)
     struct lcore_conf *qconf;
 
     uint8_t *data = rte_pktmbuf_mtod(m, uint8_t *);
+    /*
     if(data[36] == 0x30 && data[37] == 0x39){
 	    printf("send tcp packet\n");
 	    print_packet(m);
 	    printf("end send...\n");
-    }
+    }*/
     qconf = &lcore_conf;
     len = qconf->tx_mbufs[port].len;
     qconf->tx_mbufs[port].m_table[len] = m;
@@ -2098,11 +2100,12 @@ main_loop(void *arg)
                 MAX_PKT_BURST);
             if (nb_rx == 0)
                 continue;
+	    /*
 	    printf("rte_eth_rx_burst %d\n", nb_rx);
 
 	    for(j = 0; j < nb_rx; j ++){
 		    print_packet(pkts_burst[j]);
-	    }
+	    }*/
 
             idle = 0;
 
@@ -2253,11 +2256,11 @@ ff_main_loop(cst_loop_func_t func, int sockfd, int epfd)
                 MAX_PKT_BURST);
             if (nb_rx == 0)
                 continue;
-	    printf("rte_eth_rx_burst %d\n", nb_rx);
+	    /*printf("rte_eth_rx_burst %d\n", nb_rx);
 
 	    for(j = 0; j < nb_rx; j ++){
 		    print_packet(pkts_burst[j]);
-	    }
+	    }*/
 
             idle = 0;
 
