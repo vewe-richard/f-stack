@@ -38,7 +38,7 @@
 #undef PCPU_PTR
 #undef PCPU_SET
 
-extern __thread struct thread *pcurthread;
+extern struct thread *pcurthread;
 extern struct pcpu *pcpup;
 
 #define	get_pcpu()              (pcpup->pc_ ## prvspace)
