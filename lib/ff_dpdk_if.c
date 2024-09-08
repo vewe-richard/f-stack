@@ -2420,6 +2420,7 @@ ff_rss_check(void *softc, uint32_t saddr, uint32_t daddr,
     uint16_t sport, uint16_t dport)
 {
     struct lcore_conf *qconf = &lcore_conf;
+    assert(softc != NULL && "Error: softc is NULL. Exiting program. Do you connect to localhost?");
     struct ff_dpdk_if_context *ctx = ff_veth_softc_to_hostc(softc);
     uint16_t nb_queues = qconf->nb_queue_list[ctx->port_id];
 
